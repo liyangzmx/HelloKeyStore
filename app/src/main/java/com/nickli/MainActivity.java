@@ -11,19 +11,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.nickli.hellokeystore.R;
 import com.nickli.security.netty.NettyClient;
 import com.nickli.security.netty.NettyServer;
-import com.nickli.security.utils.ECCKeyUtil;
-
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import com.nickli.security.utils.KeyUtil;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
 import java.security.KeyStore;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.Security;
-import java.security.SignatureException;
-import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 
@@ -39,12 +31,17 @@ public class MainActivity extends AppCompatActivity {
     NettyServer nettyServer = new NettyServer();
     KeyStore.PrivateKeyEntry mPrivateKeyEntry;
 
-    private ECCKeyUtil mECCKeyUtil = new ECCKeyUtil();
+    private KeyUtil mKeyUtil = new KeyUtil();
     private static final String ANDROID_KEYSTORE_PROVIDER = "AndroidKeyStore";
     private static final String CLIENT_KEY_ALIAS = "client_key_alias";
     private static final String SERVER_KEY_ALIAS = "server_key_alias";
     private final String CA_KEY_ALIAS = "ca_key_alias";
     private final String CA_KEY_ALIAS_RSA = "ca_key_alias_rsa";
+
+    // if serverIsRSA is true
+    //      Server: RSA, Client: ECC
+    //      Serverr ECC, CLient: RSA
+    private final boolean serverIsRSA = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,30 +57,30 @@ public class MainActivity extends AppCompatActivity {
 //        }
 
         if (true) {
-            mECCKeyUtil.deleteKey(CA_KEY_ALIAS);
-            mECCKeyUtil.deleteKey(CA_KEY_ALIAS_RSA);
-            mECCKeyUtil.deleteKey(CLIENT_KEY_ALIAS);
-            mECCKeyUtil.deleteKey(SERVER_KEY_ALIAS);
+            mKeyUtil.deleteKey(CA_KEY_ALIAS);
+            mKeyUtil.deleteKey(CA_KEY_ALIAS_RSA);
+            mKeyUtil.deleteKey(CLIENT_KEY_ALIAS);
+            mKeyUtil.deleteKey(SERVER_KEY_ALIAS);
+
+            X509Certificate clientCert = null;
+            X509Certificate serverCert = null;
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                mECCKeyUtil.genKeyPair(CA_KEY_ALIAS_RSA, true);
-                mECCKeyUtil.genKeyPair(CA_KEY_ALIAS, false);
-                mECCKeyUtil.genKeyPair(CLIENT_KEY_ALIAS, true);
-                mECCKeyUtil.genKeyPair(SERVER_KEY_ALIAS, false);
+                mKeyUtil.genKeyPair(CA_KEY_ALIAS_RSA, true);
+                mKeyUtil.genKeyPair(CA_KEY_ALIAS, false);
+                mKeyUtil.genKeyPair(CLIENT_KEY_ALIAS, !serverIsRSA);
+                mKeyUtil.genKeyPair(SERVER_KEY_ALIAS, serverIsRSA);
+                if (serverIsRSA) {
+                    clientCert = mKeyUtil.signCSRwithCA(CA_KEY_ALIAS, CLIENT_KEY_ALIAS, !serverIsRSA);
+                    serverCert= mKeyUtil.signCSRwithCA(CA_KEY_ALIAS_RSA, SERVER_KEY_ALIAS, serverIsRSA);
+                } else {
+                    clientCert = mKeyUtil.signCSRwithCA(CA_KEY_ALIAS_RSA, CLIENT_KEY_ALIAS, !serverIsRSA);
+                    serverCert= mKeyUtil.signCSRwithCA(CA_KEY_ALIAS, SERVER_KEY_ALIAS, serverIsRSA);
+                }
             }
+            nettyClient.setCertificate(clientCert, !serverIsRSA);
+            nettyServer.setCertificate(serverCert, serverIsRSA);
 
-            String clientAlias = CLIENT_KEY_ALIAS;
-            // continue
-            System.out.println("jms: sendThread start");
-            X509Certificate clientCert = mECCKeyUtil.signCSRwithCA(CA_KEY_ALIAS_RSA, CLIENT_KEY_ALIAS, true);
-            System.out.println("jms: sendThread start");
-            X509Certificate serverCert = mECCKeyUtil.signCSRwithCA(CA_KEY_ALIAS, SERVER_KEY_ALIAS, false);
-            System.out.println("jms: sendThread start");
-            nettyClient.setCertificate(clientCert);
-            System.out.println("jms: sendThread start");
-            nettyServer.setCertificate(serverCert);
-            System.out.println("jms: sendThread start");
-
-            System.out.println("jms: sendThread start");
             sendThread.start();
             sendLooper = sendThread.getLooper();
             sendHandler = new Handler(sendLooper);
@@ -119,7 +116,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (false) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                mECCKeyUtil.genKeyPairDefault();
+                mKeyUtil.genKeyPairDefault();
             }
             String clientAlias = CLIENT_KEY_ALIAS;
             String serverEphemeralString = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3JZcof/4ONKBqHyQ0g+2i36Ot0BwXZPMZor0xDguZQL711xfWR6y7TjJ5u3TgdEVn9iSKhrqEf8mrtr5ZpfrUw==";
@@ -131,17 +128,17 @@ public class MainActivity extends AppCompatActivity {
             byte[] input = inputStr.getBytes(StandardCharsets.UTF_8);
 
             // Encrypt Data
-            byte[] secret = mECCKeyUtil.ECDH(clientAlias, serverEphemeralPublicKey);
+            byte[] secret = mKeyUtil.ECDH(clientAlias, serverEphemeralPublicKey);
             ByteArrayOutputStream ivout = new ByteArrayOutputStream();
-            byte[] encryptedData = mECCKeyUtil.encrypt(secret, input, ivout);
+            byte[] encryptedData = mKeyUtil.encrypt(secret, input, ivout);
             // Sign Encryt Data
-            byte[] signature = mECCKeyUtil.sign(clientAlias, encryptedData);
+            byte[] signature = mKeyUtil.sign(clientAlias, encryptedData);
 
             // Verify Encrypted Data
-            boolean verifyResult = mECCKeyUtil.verify(clientAlias, encryptedData, signature);
+            boolean verifyResult = mKeyUtil.verify(clientAlias, encryptedData, signature);
             System.out.println("verifyResult: " + verifyResult);
             // Decrypt Data
-            byte[] decryptedData = mECCKeyUtil.decrypt(secret, encryptedData, ivout.toByteArray());
+            byte[] decryptedData = mKeyUtil.decrypt(secret, encryptedData, ivout.toByteArray());
             System.out.println("Decyrpted data: " + new String(decryptedData));
         }
     }

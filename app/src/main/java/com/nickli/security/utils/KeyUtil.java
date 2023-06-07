@@ -37,21 +37,19 @@ import org.bouncycastle.jce.spec.ECPrivateKeySpec;
 import org.bouncycastle.openssl.PEMException;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
-import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemWriter;
 
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
-import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.Key;
@@ -69,15 +67,12 @@ import java.security.Signature;
 import java.security.SignatureException;
 import java.security.UnrecoverableEntryException;
 import java.security.cert.Certificate;
-import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECKey;
-import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.RSAKey;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.Date;
@@ -92,7 +87,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.security.auth.x500.X500Principal;
 
-public class ECCKeyUtil {
+public class KeyUtil {
     private static final String ANDROID_KEYSTORE_PROVIDER = "AndroidKeyStore";
     private static final String KEY_ALIAS = "my_key_alias";
     private static final String PLT_KEY_ALIAS = "platform_key_alias";
@@ -114,15 +109,59 @@ public class ECCKeyUtil {
     private PrivateKey mPrivatekey;
     private PublicKey mPublicKey;
 
-    private static final byte[] FAKE_PRI_KEY_ENCODED = {48, -127, -121, 2, 1, 0, 48, 19, 6, 7,
-            42, -122, 72, -50, 61, 2, 1, 6, 8, 42, -122, 72, -50, 61, 3, 1, 7, 4, 109, 48, 107, 2, 1,
-            1, 4, 32, 53, 19, -18, -26, 11, 60, -57, -38, 77, -115, -15, -40, -67, -114, -113, 59,
-            127, 81, -102, -78, -43, 19, -86, -128, 28, -69, -126, -106, -30, 39, -75, 42, -95, 68,
-            3, 66, 0, 4, -114, -89, -115, 64, 1, -109, 17, 121, -8, -11, 18, 85, -24, -2, 0, -25,
-            105, 87, -33, -87, -121, 69, -84, -8, 46, -100, 49, 43, 53, -59, 89, -44, -3, 70, 117,
-            -126, 122, -120, -126, 112, -60, 55, -99, 125, -52, 81, 118, -77, -119, -26, 1, 107,
-            -114, 4, 69, 96, 116, 115, -114, -128, 86, 47, 112, -81};
     private static final String TLS_PRI_KEY_FORMAT = "PKCS#8";
+
+    public static byte[] hexStringToByteArray(String hexString) {
+        int len = hexString.length();
+        byte[] byteArray = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            byteArray[i / 2] = (byte) ((Character.digit(hexString.charAt(i), 16) << 4)
+                    + Character.digit(hexString.charAt(i + 1), 16));
+        }
+        return byteArray;
+    }
+
+    public byte[] getECPublicKey() {
+        String hexStr = "000133ca6bc5e920e6bec2a16ce07a70e8282bcd68d104aec36e41791fabfc2ddd3223a8ef59a658a9e30cd92a5d241bbf4c18684a4a61c9aa0d1d9d3181d3022d2f64c7663000915622d4e670cce86737bb00cab5de91cd803181d6595b9fde71528eb6e6d4e3732a5f7d69d66cb2f11fb4a53693823327790bbadeeb0a6a098f77d864082469";
+        byte[] data = hexStringToByteArray(hexStr);
+
+        // Concatenated data
+        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(data.length);
+        byte[] newData = new byte[1 + 32 + 32];
+        System.arraycopy(data, 1 + 1 + 20, newData, 0, 1 + 32 + 32);
+        byteBuffer.put(newData);
+        byteBuffer.rewind();
+
+        byte[] flag = new byte[1];
+        byte[] xBytes = new byte[32];
+        byte[] yBytes = new byte[32];
+        byteBuffer.get(flag, 0, 1);
+        byteBuffer.get(xBytes, 0, 32);
+        byteBuffer.get(yBytes, 0, 32);
+
+        ECNamedCurveParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec("prime256v1");
+        ECDomainParameters ecDomainParameters = new ECDomainParameters(
+                ecSpec.getCurve(),
+                ecSpec.getG(),
+                ecSpec.getN()
+        );
+        // 从字节数组构造公钥参数
+        ECPublicKeyParameters publicKeyParams = new ECPublicKeyParameters(
+                ecSpec.getCurve().createPoint(new BigInteger(1, xBytes), new BigInteger(1, yBytes)),
+                ecDomainParameters
+        );
+        PemObject pemObject = new PemObject("PUBLIC KEY", publicKeyParams.getQ().getEncoded(false));
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (PemWriter pemWriter = new PemWriter(new OutputStreamWriter(baos))) {
+            pemWriter.writeObject(pemObject);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        byte[] pemBytes = baos.toByteArray();
+        System.out.println("baos: " + baos.toString());
+        return pemBytes;
+    }
 
     public void importCertCA(String caAlias, X509Certificate caCert) {
         KeyStore systemKeyStore = null;
@@ -196,9 +235,9 @@ public class ECCKeyUtil {
 //        }
 //        PKCS10CertificationRequest pkcs10CertificationRequest = getCSRFromString(pemFileContent);
 
-        System.out.println("jms: csr: " + csr.toString());
+//        System.out.println("jms: csr: " + csr.toString());
         X509Certificate certificate = signCSR(caAlias, csr, isRSA);
-        System.out.println("jms: signCSR(): Certificate: " + certificate.toString());
+//        System.out.println("jms: signCSR(): Certificate: " + certificate.toString());
 
         return certificate;
     }
@@ -246,7 +285,7 @@ public class ECCKeyUtil {
         return KEY_ALIAS;
     }
 
-    public ECCKeyUtil() {
+    public KeyUtil() {
         try {
             mKeyStore = KeyStore.getInstance(ANDROID_KEYSTORE_PROVIDER);
             mKeyStore.load(null);

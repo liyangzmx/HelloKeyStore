@@ -1,10 +1,9 @@
 package com.nickli.security.netty;
 
-import android.security.keystore.KeyProperties;
 import android.util.Log;
 
 import com.nickli.security.keystore.CustProvider;
-import com.nickli.security.utils.ECCKeyUtil;
+import com.nickli.security.utils.KeyUtil;
 
 import java.io.IOException;
 import java.net.Socket;
@@ -16,7 +15,6 @@ import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.Principal;
 import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.security.SignatureException;
 import java.security.UnrecoverableEntryException;
 import java.security.cert.CertificateException;
@@ -47,17 +45,20 @@ public class NettyClient {
     private static final int PORT = 8888;
     private static final String CLIENT_KEY_ALIAS = "client_key_alias";
     private static final String SERVER_KEY_ALIAS = "server_key_alias";
+    private final String CA_KEY_ALIAS_RSA = "ca_key_alias_rsa";
     private static final String ANDROID_KEYSTORE_PROVIDER = "AndroidKeyStore";
     private final String CA_KEY_ALIAS = "ca_key_alias";
 
     private KeyStore mKeyStore;
     private KeyStore.PrivateKeyEntry mCientKeyEntry;
     private byte[] mSharedSecret = new byte[0];
-    private ECCKeyUtil mECCKeyUtil = new ECCKeyUtil();
+    private KeyUtil mKeyUtil = new KeyUtil();
     private X509Certificate certificate;
+    private boolean mIsRSA = false;
 
-    public void setCertificate(X509Certificate certificate) {
+    public void setCertificate(X509Certificate certificate, boolean isRSA) {
         this.certificate = certificate;
+        this.mIsRSA = isRSA;
     }
 
     public void send() throws InterruptedException {
@@ -113,7 +114,7 @@ public class NettyClient {
                                 @Override
                                 public X509Certificate[] getCertificateChain(String alias) {
                                     System.out.println("jms: client getCertificateChain, alias: " + alias);
-                                    X509Certificate x509Certificate = mECCKeyUtil.getCertificate(alias);
+                                    X509Certificate x509Certificate = mKeyUtil.getCertificate(alias);
 //                                    return new X509Certificate[] {(X509Certificate) mCientKeyEntry.getCertificate()};
 //                                    return new X509Certificate[]{ x509Certificate };
                                     return new X509Certificate[] { certificate };
@@ -122,11 +123,16 @@ public class NettyClient {
                                 @Override
                                 public PrivateKey getPrivateKey(String alias) {
                                     System.out.println("jms: client getPrivateKey, alias: " + alias);
+                                    System.out.println("jms: client getPrivateKey, alias: " + alias);
                                     if ( true ) {
                                         CustProvider.installAsDefault();
-                                        return mECCKeyUtil.createRSAPrivateKey(alias);
+//                                        return mECCKeyUtil.createECPrivateKey(alias);
+                                        if (mIsRSA)
+                                            return mKeyUtil.createRSAPrivateKey(alias);
+                                        else
+                                            return mKeyUtil.createECPrivateKey(alias);
                                     } else {
-                                        return mECCKeyUtil.getPrivateKey(alias);
+                                        return mKeyUtil.getPrivateKey(alias);
                                     }
                                 }
                             };
@@ -146,9 +152,12 @@ public class NettyClient {
 
                                     X509Certificate cert = chain[0];
 //                                    System.out.println("jms: client: the server Cert: " + cert.toString());
-
-                                    X509Certificate caCert = (X509Certificate) mECCKeyUtil.getCertificate(CA_KEY_ALIAS);
-//                                    System.out.println("jms: client: the server CA: " + caCert.toString());
+                                    X509Certificate caCert = null;
+                                    if (!mIsRSA)
+                                        caCert = (X509Certificate) mKeyUtil.getCertificate(CA_KEY_ALIAS_RSA);
+                                    else
+                                        caCert = (X509Certificate) mKeyUtil.getCertificate(CA_KEY_ALIAS);
+//                                    System.out.println("jms: client: the server CA: " + caCert.toString());//                                    System.out.println("jms: client: the server CA: " + caCert.toString());
                                     try {
                                         cert.verify(caCert.getPublicKey(), "AndroidKeyStoreBCWorkaround");
                                         System.out.println("jms: client checkServerTrusted cert success.");

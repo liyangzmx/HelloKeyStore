@@ -18,6 +18,7 @@ public class CustProvider extends Provider {
     protected CustProvider() {
         super(PROVIDER_NAME, 1.0d, "Cust keystore security provider");
 
+        // call AndroidKeyStore to sign
         putSignatureImpl("ECDSA", PACKAGE_NAME + ".CustECDSASignatureSpi$SHA1");
         put("Alg.Alias.Signature.ECDSA", "SHA1withECDSA");
 
@@ -38,16 +39,14 @@ public class CustProvider extends Provider {
         putSignatureImpl("NONEwithECDSA", PACKAGE_NAME + ".CustECDSASignatureSpi$NONE");
         put("Alg.Alias.Signature.NONEwithECDSA", "NONEwithECDSA");
 
-        put("Signature.SHA256withRSA", PACKAGE_NAME + ".CustDSARSASignatureSpi$SHA256");
-        put("Alg.Alias.Signature.SHA256withRSA", "SHA256withRSA");
-        put("Alg.Alias.Signature.1.2.840.113549.1.1.11", "SHA256withRSA");
-
-        putSignatureImpl("NONEwithRSA", PACKAGE_NAME + ".CustRSADSASignatureSpi$NONE");
-        put("Alg.Alias.Signature.NONEwithRSA", "NONEwithRSA");
+        // call AndroidKeyStore to encrypt
+        putCipherImpl("RSA/ECB/NoPadding", PACKAGE_NAME + ".CustRSACipherSpi$ARSA_ECB_NoPadding");
+        put("Alg.Alias.Cipher.RSA/None/NoPadding", "RSA/ECB/NoPadding");
     }
 
     public static void installAsDefault() {
         Provider[] providers = Security.getProviders("SSLContext.TLS");
+        // Mustbe first ???
 //        if (providers != null && "AndroidOpenSSL".equals(providers[0].getName())) {
 //            Security.addProvider(new CustProvider());
 //            System.out.println("jms: add sky keystore after android openssl.");
@@ -63,5 +62,10 @@ public class CustProvider extends Provider {
 
     private void putSignatureImpl(String algorithm, String implClass) {
         put("Signature." + algorithm, implClass);
+    }
+
+    private void putCipherImpl(String algorithm, String implClass) {
+        put("Cipher." + algorithm, implClass);
+        // put("Cipher." + algorithm + " SupportedKeyClasses", "com.skyui.security.keystore.SkyKeyStorePrivateKey|com.skyui.security.keystore.SkyKeyStorePublicKey");
     }
 }

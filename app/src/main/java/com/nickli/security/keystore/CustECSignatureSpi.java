@@ -1,6 +1,6 @@
 package com.nickli.security.keystore;
 
-import com.nickli.security.utils.ECCKeyUtil;
+import com.nickli.security.utils.KeyUtil;
 
 import java.security.InvalidKeyException;
 import java.security.InvalidParameterException;
@@ -14,7 +14,7 @@ import java.security.SignatureSpi;
 
 public abstract class CustECSignatureSpi extends SignatureSpi {
     CustECPrivateKey mKey = null;
-    ECCKeyUtil mECCKeyUtil = new ECCKeyUtil();
+    KeyUtil mKeyUtil = new KeyUtil();
     byte[] mDigest = null;
     private static final String ANDROID_KEYSTORE_PROVIDER = "AndroidKeyStore";
     private Signature mSignature;
@@ -46,7 +46,7 @@ public abstract class CustECSignatureSpi extends SignatureSpi {
             }
             mKey = (CustECPrivateKey) privateKey;
             System.out.println("jms: CustECSignatureSpi.engineInitSign(PrivateKey: " + mKey.getAlias() + ")");
-            PrivateKey key = mECCKeyUtil.getPrivateKey(mKey.getAlias());
+            PrivateKey key = mKeyUtil.getPrivateKey(mKey.getAlias());
             mSignature.initSign(key);
         } else {
             throw new InvalidKeyException("Unsupported key type, only support CustEcPrivateKey.");
