@@ -3,15 +3,18 @@ package com.nickli.security.utils;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
+import android.util.Base64;
 
 import androidx.annotation.RequiresApi;
 
 import com.nickli.security.keystore.CustECPrivateKey;
 import com.nickli.security.keystore.CustRSAPrivateKey;
 
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
@@ -28,6 +31,7 @@ import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.bouncycastle.crypto.params.HKDFParameters;
 import org.bouncycastle.crypto.util.DigestFactory;
+import org.bouncycastle.crypto.util.SubjectPublicKeyInfoFactory;
 import org.bouncycastle.jcajce.provider.asymmetric.ec.BCECPublicKey;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -40,6 +44,7 @@ import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.bouncycastle.util.encoders.Hex;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemWriter;
 
@@ -50,6 +55,7 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.security.AlgorithmParameters;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.Key;
@@ -70,11 +76,14 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECKey;
+import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAKey;
 import java.security.spec.ECGenParameterSpec;
+import java.security.spec.ECPoint;
+import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
+import java.security.spec.InvalidParameterSpecException;
 import java.security.spec.X509EncodedKeySpec;
-import java.util.Base64;
 import java.util.Date;
 
 import javax.crypto.BadPaddingException;
@@ -121,46 +130,143 @@ public class KeyUtil {
         return byteArray;
     }
 
-    public byte[] getECPublicKey() {
-        String hexStr = "000133ca6bc5e920e6bec2a16ce07a70e8282bcd68d104aec36e41791fabfc2ddd3223a8ef59a658a9e30cd92a5d241bbf4c18684a4a61c9aa0d1d9d3181d3022d2f64c7663000915622d4e670cce86737bb00cab5de91cd803181d6595b9fde71528eb6e6d4e3732a5f7d69d66cb2f11fb4a53693823327790bbadeeb0a6a098f77d864082469";
-        byte[] data = hexStringToByteArray(hexStr);
+    public static byte[] decodePEM(String pemData) throws IOException {
+        // 移除 PEM 格式的头部和尾部
+        pemData = pemData.replace("-----BEGIN PUBLIC KEY-----", "")
+                .replace("-----END PUBLIC KEY-----", "")
+                .replace("\n", "")
+                .replace("\r", "");
 
-        // Concatenated data
-        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(data.length);
-        byte[] newData = new byte[1 + 32 + 32];
-        System.arraycopy(data, 1 + 1 + 20, newData, 0, 1 + 32 + 32);
-        byteBuffer.put(newData);
-        byteBuffer.rewind();
+        // Base64 解码
+        byte[] decodedBytes = Base64.decode(pemData, Base64.DEFAULT);
 
-        byte[] flag = new byte[1];
-        byte[] xBytes = new byte[32];
-        byte[] yBytes = new byte[32];
-        byteBuffer.get(flag, 0, 1);
-        byteBuffer.get(xBytes, 0, 32);
-        byteBuffer.get(yBytes, 0, 32);
+        return decodedBytes;
+    }
 
+    public ECPublicKey getECPublicKey(byte[] xBytes, byte[] yBytes) {
+        if (false) {
+            String hexStr = "000133ca6bc5e920e6bec2a16ce07a70e8282bcd68d104aec36e41791fabfc2ddd3223a8ef59a658a9e30cd92a5d241bbf4c18684a4a61c9aa0d1d9d3181d3022d2f64c7663000915622d4e670cce86737bb00cab5de91cd803181d6595b9fde71528eb6e6d4e3732a5f7d69d66cb2f11fb4a53693823327790bbadeeb0a6a098f77d864082469";
+            byte[] data = hexStringToByteArray(hexStr);
+
+            // Concatenated data
+            ByteBuffer byteBuffer = ByteBuffer.allocateDirect(data.length);
+            byte[] newData = new byte[1 + 32 + 32];
+            System.arraycopy(data, 1 + 1 + 20, newData, 0, 1 + 32 + 32);
+            byteBuffer.put(newData);
+            byteBuffer.rewind();
+
+            byte[] flag = new byte[1];
+//            byte[] xBytes = new byte[32];
+//            byte[] yBytes = new byte[32];
+            byteBuffer.get(flag, 0, 1);
+            byteBuffer.get(xBytes, 0, 32);
+            byteBuffer.get(yBytes, 0, 32);
+        }
+//
         ECNamedCurveParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec("prime256v1");
-        ECDomainParameters ecDomainParameters = new ECDomainParameters(
-                ecSpec.getCurve(),
-                ecSpec.getG(),
-                ecSpec.getN()
-        );
-        // 从字节数组构造公钥参数
-        ECPublicKeyParameters publicKeyParams = new ECPublicKeyParameters(
-                ecSpec.getCurve().createPoint(new BigInteger(1, xBytes), new BigInteger(1, yBytes)),
-                ecDomainParameters
-        );
-        PemObject pemObject = new PemObject("PUBLIC KEY", publicKeyParams.getQ().getEncoded(false));
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (PemWriter pemWriter = new PemWriter(new OutputStreamWriter(baos))) {
-            pemWriter.writeObject(pemObject);
-        } catch (IOException e) {
+        ECPoint pubPoint = new ECPoint(new BigInteger(1, xBytes), new BigInteger(1, yBytes));
+        AlgorithmParameters parameters = null;
+        ECPublicKey ecPublicKey = null;
+        try {
+            parameters = AlgorithmParameters.getInstance("EC");
+            parameters.init(new ECGenParameterSpec("prime256v1"));
+            java.security.spec.ECParameterSpec parameterSpec = parameters.getParameterSpec(java.security.spec.ECParameterSpec.class);
+            ECPublicKeySpec spec = new ECPublicKeySpec(pubPoint, parameterSpec);
+            KeyFactory factory = KeyFactory.getInstance("EC");
+            ecPublicKey = (ECPublicKey) factory.generatePublic(spec);
+        } catch (NoSuchAlgorithmException | InvalidParameterSpecException | InvalidKeySpecException e) {
             e.printStackTrace();
         }
-        byte[] pemBytes = baos.toByteArray();
-        System.out.println("baos: " + baos.toString());
-        return pemBytes;
+        assert ecPublicKey != null;
+        ECNamedCurveParameterSpec spec = ECNamedCurveTable.getParameterSpec(ecPublicKey.getParams().getCurve().getField().toString());
+
+        return ecPublicKey;
+
+//        ECDomainParameters ecDomainParameters = new ECDomainParameters(
+//                ecSpec.getCurve(),
+//                ecSpec.getG(),
+//                ecSpec.getN(),
+//                ecSpec.getH(),
+//                ecSpec.getSeed()
+//        );
+//        // 从字节数组构造公钥参数
+//        ECPublicKeyParameters publicKeyParams = new ECPublicKeyParameters(
+//                ecSpec.getCurve().createPoint(new BigInteger(1, xBytes), new BigInteger(1, yBytes)),
+//                ecDomainParameters
+//        );
+//
+//        SubjectPublicKeyInfo publicKeyInfo = null;
+//        PemObject pemObject = null;
+//        try {
+//            publicKeyInfo = SubjectPublicKeyInfoFactory.createSubjectPublicKeyInfo(publicKeyParams);
+//            pemObject = new PemObject("PUBLIC KEY", publicKeyInfo.getEncoded());
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//
+//        StringWriter stringWriter = new StringWriter();
+//        PemWriter pemWriter = new PemWriter(stringWriter);
+//        try {
+//            pemWriter.writeObject(pemObject);
+//            pemWriter.close();
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//        System.out.println("jms: pem: " + stringWriter.toString());
+//        return stringWriter.toString();
+//        byte[] pemBytes = baos.toByteArray();
+//        System.out.println("baos: " + baos.toString());
+//        return pemBytes;
+//        return publicKeyParams.getQ().getEncoded(false);
+    }
+
+    public byte[] ECDHwithKey(String alias, ECPublicKey serverEphemeralPublicKey) {
+        KeyAgreement keyAgreement = null;
+        PrivateKey privateKey = getPrivateKey(alias);
+        byte[] secret = new byte[0];
+        try {
+            keyAgreement = KeyAgreement.getInstance(
+                    "ECDH",
+                    ANDROID_KEYSTORE_PROVIDER
+            );
+        } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
+            e.printStackTrace();
+        }
+        try {
+            keyAgreement.init(privateKey);
+            KeyFactory keyFactory = KeyFactory.getInstance("EC");
+            Key aesKey = keyAgreement.doPhase(serverEphemeralPublicKey, true);
+            secret = keyAgreement.generateSecret();
+        } catch (InvalidKeyException | NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+        return secret;
+    }
+
+
+    public byte[] ECDH(String alias, byte[] serverEphemeral) {
+        KeyAgreement keyAgreement = null;
+        PrivateKey privateKey = getPrivateKey(alias);
+        byte[] secret = new byte[0];
+        try {
+            keyAgreement = KeyAgreement.getInstance(
+                    "ECDH",
+                    ANDROID_KEYSTORE_PROVIDER
+            );
+        } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
+            e.printStackTrace();
+        }
+        try {
+            keyAgreement.init(privateKey);
+            KeyFactory keyFactory = KeyFactory.getInstance("EC");
+            X509EncodedKeySpec serverKeySpec = new X509EncodedKeySpec(serverEphemeral);
+            PublicKey serverEphemeralPublicKey = keyFactory.generatePublic(serverKeySpec);
+            Key aesKey = keyAgreement.doPhase(serverEphemeralPublicKey, true);
+            secret = keyAgreement.generateSecret();
+        } catch (InvalidKeyException | NoSuchAlgorithmException | InvalidKeySpecException e) {
+            e.printStackTrace();
+        }
+        return secret;
     }
 
     public void importCertCA(String caAlias, X509Certificate caCert) {
@@ -428,7 +534,7 @@ public class KeyUtil {
         basicAgreement.init((CipherParameters) ecPrivateKeyParameters);
         byte[] rdPubEphemeral = new byte[0];
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            rdPubEphemeral = Base64.getDecoder().decode(RD_PUB_EPHEMERAL_PROD);
+            rdPubEphemeral = Base64.decode(RD_PUB_EPHEMERAL_PROD, Base64.DEFAULT);
             SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo.getInstance(rdPubEphemeral);
             JcaPEMKeyConverter keyConverter = new JcaPEMKeyConverter();
                 BCECPublicKey ecPublicKey = null;
@@ -452,7 +558,7 @@ public class KeyUtil {
                     domainParameters
             );
             BigInteger secret = basicAgreement.calculateAgreement(publicKeyParameters);
-            System.out.println("session_key_base64: " + Base64.getEncoder().encodeToString(secret.toByteArray()));
+            System.out.println("session_key_base64: " + Base64.encodeToString(secret.toByteArray(), Base64.DEFAULT));
         }
     }
 
@@ -711,31 +817,6 @@ public class KeyUtil {
         return builder.build(
                 new CustContentSigner(privateKey, isRSA)
         );
-    }
-
-    public byte[] ECDH(String alias, byte[] serverEphemeral) {
-        KeyAgreement keyAgreement = null;
-        PrivateKey privateKey = getPrivateKey(alias);
-        byte[] secret = new byte[0];
-        try {
-            keyAgreement = KeyAgreement.getInstance(
-                    "ECDH",
-                    ANDROID_KEYSTORE_PROVIDER
-            );
-        } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
-            e.printStackTrace();
-        }
-        try {
-            keyAgreement.init(privateKey);
-            KeyFactory keyFactory = KeyFactory.getInstance("EC");
-            X509EncodedKeySpec serverKeySpec = new X509EncodedKeySpec(serverEphemeral);
-            PublicKey serverEphemeralPublicKey = keyFactory.generatePublic(serverKeySpec);
-            Key aesKey = keyAgreement.doPhase(serverEphemeralPublicKey, true);
-            secret = keyAgreement.generateSecret();
-        } catch (InvalidKeyException | NoSuchAlgorithmException | InvalidKeySpecException e) {
-            e.printStackTrace();
-        }
-        return secret;
     }
 
     public byte[] encrypt(byte[] secret, byte[] input, ByteArrayOutputStream ivout) {
